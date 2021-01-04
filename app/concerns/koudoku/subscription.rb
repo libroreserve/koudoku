@@ -7,7 +7,7 @@ module Koudoku::Subscription
     # client-side after storing the credit card information.
     attr_accessor :credit_card_token
 
-    belongs_to :plan
+    belongs_to :plan, optional: true
 
     # update details.
     before_save :processing!
@@ -66,7 +66,7 @@ module Koudoku::Subscription
             prepare_for_upgrade
 
             begin
-
+              raise Koudoku::NilCardToken, "No card token received. Check for JavaScript errors breaking Stripe.js on the previous page." unless credit_card_token.present?
               customer_attributes = {
                 description: subscription_owner_description,
                 email: subscription_owner_email,
@@ -79,8 +79,8 @@ module Koudoku::Subscription
                   customer_attributes[:trial_end] = coupon.free_trial_ends.to_i
                 end
               end
-              
-              customer_attributes[:coupon] = @coupon_code if @coupon_code 
+
+              customer_attributes[:coupon] = @coupon_code if @coupon_code
 
               # create a customer at that package level.
               customer = Stripe::Customer.create(customer_attributes)
@@ -95,7 +95,7 @@ module Koudoku::Subscription
             end
 
             # store the customer id.
-            card = customer.cards.retrieve(customer.default_card)
+            card = customer.sources.retrieve(customer.default_source)
 
             self.stripe_id = customer.id
             self.last_four = card.last4
@@ -126,43 +126,41 @@ module Koudoku::Subscription
 
         # fetch the customer.
         customer = Stripe::Customer.retrieve(self.stripe_id)
-        customer.card = self.credit_card_token
+        customer.source = self.credit_card_token
         customer.save
 
         # update the last four based on this new card.
-        card = customer.cards.retrieve(customer.default_card)
+        card = customer.sources.retrieve(customer.default_source)
 
         self.last_four = card.last4
         self.card_type = card.brand
         finalize_card_update!
 
       end
-
     end
-
   end
-  
-  
+
+
   def describe_difference(plan_to_describe)
     if plan.nil?
       if persisted?
-        "Upgrade"
+        I18n.t('koudoku.plan_difference.upgrade')
       else
         if Koudoku.free_trial?
-          "Start Trial"
+          I18n.t('koudoku.plan_difference.start_trial')
         else
-          "Upgrade"
+          I18n.t('koudoku.plan_difference.upgrade')
         end
       end
     else
       if plan_to_describe.is_upgrade_from?(plan)
-        "Upgrade"
+        I18n.t('koudoku.plan_difference.upgrade')
       else
-        "Downgrade"
+        I18n.t('koudoku.plan_difference.downgrade')
       end
     end
   end
-  
+
   # Set a Stripe coupon code that will be used when a new Stripe customer (a.k.a. Koudoku subscription)
   # is created
   def coupon_code=(new_code)

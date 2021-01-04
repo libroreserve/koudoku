@@ -6,7 +6,7 @@ module Koudoku
     before_action :load_plans, only: [:index, :edit]
 
     def load_plans
-      @plans = ::Plan.order(:price)
+      @plans = ::Plan.order(:display_order)
     end
 
     def unauthorized
@@ -21,8 +21,9 @@ module Koudoku
           # taking advantage of any override of the find method that would be provided
           # by older versions of friendly_id. (support for newer versions default behavior
           # below.)
+
           searched_owner = koudoku_subscription_owner.class.find(params[:owner_id]) rescue nil
-          
+
           # if we couldn't find them that way, check whether there is a new version of
           # friendly_id in place that we can use to look them up by their slug.
           # in christoph's words, "why?!" in my words, "warum?!!!"
@@ -30,7 +31,7 @@ module Koudoku
           if searched_owner.nil? && koudoku_subscription_owner.class.respond_to?(:friendly)
             searched_owner = koudoku_subscription_owner.class.friendly.find(params[:owner_id]) rescue nil
           end
-          
+
           if koudoku_subscription_owner.try(:id) == searched_owner.try(:id)
             @owner = koudoku_subscription_owner
           else
@@ -47,23 +48,34 @@ module Koudoku
     end
 
     def load_subscription
-      ownership_attribute = Koudoku.owner_foreign_key
+      ownership_attribute = :"#{Koudoku.subscriptions_owned_by}_id"
       @subscription = ::Subscription.where(ownership_attribute => koudoku_subscription_owner.id).find_by_id(params[:id])
+
+      # also, if cancan methods are available, we should use that to authorize.
+      if defined?(:can?)
+        return unauthorized unless can? :manage, @subscription
+      end
+
       return @subscription.present? ? @subscription : unauthorized
     end
 
-    # the following two methods allow us to show the pricing table before someone has an account.
+    # the following three methods allow us to show the pricing table before someone has an account.
     # by default these support devise, but they can be overriden to support others.
     def koudoku_subscription_owner
       # e.g. "self.current_user"
       send "current_#{Koudoku.subscriptions_owned_by}"
     end
 
+    def current_owned_through_or_by
+      # e.g. "self.current_user"
+      send "current_#{Koudoku.subscriptions_owned_through_or_by}"
+    end
+
     def redirect_to_sign_up
       # this is a Devise default variable and thus should not change its name
-      # when we change subscription owners from :user to :company 
-      session["user_return_to"] = new_subscription_path(plan: params[:plan])
-      redirect_to new_registration_path(Koudoku.subscriptions_owned_by)
+      # when we change subscription owners from :user to :company
+      session["#{Koudoku.subscriptions_owned_through_or_by}_return_to"] = new_subscription_path(plan: params[:plan])
+      redirect_to new_registration_path(Koudoku.subscriptions_owned_through_or_by.to_s)
     end
 
     def index
@@ -73,9 +85,6 @@ module Koudoku
         redirect_to koudoku.edit_owner_subscription_path(koudoku_subscription_owner, koudoku_subscription_owner.subscription)
       end
 
-      # Load all plans.
-      @plans = ::Plan.order(:display_order).all
-      
       # Don't prep a subscription unless a user is authenticated.
       unless no_owner?
         # we should also set the owner of the subscription here.
@@ -96,9 +105,9 @@ module Koudoku
           else
             redirect_to_sign_up
           end
-          
+
         else
-          raise "This feature depends on Devise for authentication."
+          raise I18n.t('koudoku.failure.feature_depends_on_devise')
         end
 
       else
@@ -114,15 +123,16 @@ module Koudoku
     end
 
     def create
+
       @subscription = ::Subscription.new(subscription_params)
       @subscription.subscription_owner = @owner
       @subscription.coupon_code = session[:koudoku_coupon_code]
-      
+
       if @subscription.save
         flash[:notice] = after_new_subscription_message
-        redirect_to after_new_subscription_path 
+        redirect_to after_new_subscription_path
       else
-        flash[:error] = 'There was a problem processing this transaction.'
+        flash[:error] = I18n.t('koudoku.failure.problem_processing_transaction')
         render :new
       end
     end
@@ -131,7 +141,7 @@ module Koudoku
     end
 
     def cancel
-      flash[:notice] = "You've successfully cancelled your subscription."
+      flash[:notice] = I18n.t('koudoku.confirmations.subscription_cancelled')
       @subscription.plan_id = nil
       @subscription.save
       redirect_to owner_subscription_path(@owner, @subscription)
@@ -142,17 +152,17 @@ module Koudoku
 
     def update
       if @subscription.update_attributes(subscription_params)
-        flash[:notice] = "You've successfully updated your subscription."
+        flash[:notice] = I18n.t('koudoku.confirmations.subscription_updated')
         redirect_to owner_subscription_path(@owner, @subscription)
       else
-        flash[:error] = 'There was a problem processing this transaction.'
+        flash[:error] = I18n.t('koudoku.failure.problem_processing_transaction')
         render :edit
       end
     end
 
     private
     def subscription_params
-      
+
       # If strong_parameters is around, use that.
       if defined?(ActionController::StrongParameters)
         params.require(:subscription).permit(:plan_id, :stripe_id, :current_price, :credit_card_token, :card_type, :last_four)
@@ -162,17 +172,17 @@ module Koudoku
       end
 
     end
-    
+
     def after_new_subscription_path
       return super(@owner, @subscription) if defined?(super)
       owner_subscription_path(@owner, @subscription)
     end
-    
+
     def after_new_subscription_message
       controller = ::ApplicationController.new
-      controller.respond_to?(:new_subscription_notice_message) ? 
-          controller.try(:new_subscription_notice_message) : 
-          "You've been successfully upgraded."
+      controller.respond_to?(:new_subscription_notice_message) ?
+          controller.try(:new_subscription_notice_message) :
+          I18n.t('koudoku.confirmations.subscription_upgraded')
     end
   end
 end
