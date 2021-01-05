@@ -11,6 +11,9 @@ module Koudoku
   mattr_accessor :subscriptions_owned_through
   @@subscriptions_owned_through = nil
 
+  mattr_accessor :subscriptions_owner_resource_name
+  @@subscriptions_owner_resource_name = nil
+
   def self.subscriptions_owned_through_or_by
     @@subscriptions_owned_through || @@subscriptions_owned_by
   end

@@ -63,7 +63,7 @@ module Koudoku
     # by default these support devise, but they can be overriden to support others.
     def koudoku_subscription_owner
       # e.g. "self.current_user"
-      send "current_#{Koudoku.subscriptions_owned_by}"
+      send "current_#{Koudoku.subscriptions_owner_resource_name || Koudoku.subscriptions_owned_by}"
     end
 
     def current_owned_through_or_by
