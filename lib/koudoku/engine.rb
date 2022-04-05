@@ -8,12 +8,5 @@ module Koudoku
       g.assets false
       g.helper false
     end
-
-    initializer 'koudoku.action_controller' do |app|
-      ActiveSupport.on_load :action_controller do
-        include Koudoku::ApplicationHelper
-      end
-    end
-
   end
 end
